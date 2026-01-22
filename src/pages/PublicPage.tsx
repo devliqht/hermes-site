@@ -70,6 +70,26 @@ const PublicPage: React.FC = () => {
   // Combine the data into an array after the hooks are called
   const queueData = [csQueueData, itQueueData, isQueueData]
 
+  // Group announcements by date
+  const groupedAnnouncements = announcements.reduce(
+    (acc, announcement) => {
+      const date = announcement.date instanceof Date ? announcement.date : new Date(announcement.date)
+      const dateKey = date.toDateString()
+
+      if (!acc[dateKey]) {
+        acc[dateKey] = []
+      }
+      acc[dateKey].push(announcement)
+      return acc
+    },
+    {} as Record<string, typeof announcements>,
+  )
+
+  // Sort dates in descending order (newest first)
+  const sortedDates = Object.keys(groupedAnnouncements).sort((a, b) => {
+    return new Date(b).getTime() - new Date(a).getTime()
+  })
+
   return (
     <div className="flex min-h-screen flex-col">
       <nav className="mb-4 bg-primary px-6 py-4">
