@@ -30,3 +30,4 @@ jobs:
           target: "~/${{ secrets.DCISM_DOMAIN }}/"
           overwrite: true
           strip_components: 1
+          timeout: 300
