@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react"
 
-import { Button, Flex, Loader, Modal, Text, TextInput, Textarea } from "@mantine/core"
+import { Button, Card, Flex, Loader, Modal, Text, TextInput, Textarea } from "@mantine/core"
 import { useDisclosure } from "@mantine/hooks"
-import { Megaphone, UserPlus } from "lucide-react"
+import { Megaphone, Trash2, UserPlus } from "lucide-react"
 
+import DeleteAnnouncementConfirmModal from "../components/announcement/DeleteAnnouncementConfirmModal"
 import CardLoader from "../components/layout/CardLoader"
 import QueueCard from "../components/queue-card/QueueCard"
 import { useAuth } from "../contexts/AuthContext"
@@ -13,6 +14,7 @@ import { useStatusUpdate } from "../hooks/useStatusUpdate"
 import { AnnouncementService } from "../services/announcement.service"
 import { QueueService } from "../services/queue.service"
 import { StudentService } from "../services/student.service"
+import { Announcement } from "../types/entities/Announcement"
 import { CourseNameEnum } from "../types/enums/CourseNameEnum"
 import { ProgramEnum } from "../types/enums/ProgramsEnum"
 import { TeacherStatusEnum } from "../types/enums/TeacherStatusEnum"
@@ -22,9 +24,22 @@ const AdminPage: React.FC = () => {
   const { basicAuthToken, isCisco } = useAuth()
   const [addStudentModalOpened, { open: openAddStudentModal, close: closeAddStudentModal }] = useDisclosure(false)
   const [addToQueueModalOpened, { open: openAddToQueueModal, close: closeAddToQueueModal }] = useDisclosure(false)
+  const [dequeueModalOpened, { open: openDequeueModal, close: closeDequeueModal }] = useDisclosure(false)
   const [addAnnouncementModalOpened, { open: openAddAnnouncementModal, close: closeAddAnnouncementModal }] =
     useDisclosure(false)
   const [announcementText, setAnnouncementText] = useState<string>("")
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [announcementsLoading, setAnnouncementsLoading] = useState<boolean>(true)
+  const [dequeueStudentId, setDequeueStudentId] = useState<string>("")
+  const [dequeueStudentSearchResult, setDequeueStudentSearchResult] = useState<{
+    student: { id: string; name: string } | null
+    loading: boolean
+    error: string | null
+  }>({
+    student: null,
+    loading: false,
+    error: null,
+  })
   const [newStudent, setNewStudent] = useState<{ idNumber: string; name: string }>({
     idNumber: "",
     name: "",
@@ -85,6 +100,62 @@ const AdminPage: React.FC = () => {
 
     return () => clearTimeout(timeoutId)
   }, [queueStudent.idNumber, addToQueueModalOpened, basicAuthToken])
+
+  // Debounced student search for dequeue modal
+  useEffect(() => {
+    if (!dequeueModalOpened || !dequeueStudentId || !basicAuthToken) {
+      setDequeueStudentSearchResult({ student: null, loading: false, error: null })
+      return
+    }
+
+    const idNumber = dequeueStudentId.trim()
+    if (idNumber.length === 0) {
+      setDequeueStudentSearchResult({ student: null, loading: false, error: null })
+      return
+    }
+
+    // Debounce: wait 500ms after user stops typing
+    const timeoutId = setTimeout(async () => {
+      setDequeueStudentSearchResult({ student: null, loading: true, error: null })
+
+      try {
+        const result = await StudentService.getStudentById(idNumber, basicAuthToken)
+
+        if (result.error) {
+          setDequeueStudentSearchResult({ student: null, loading: false, error: result.error })
+        } else if (result.student) {
+          setDequeueStudentSearchResult({ student: result.student, loading: false, error: null })
+        } else {
+          setDequeueStudentSearchResult({ student: null, loading: false, error: "Student not found" })
+        }
+      } catch (error) {
+        console.error("Error searching for student:", error)
+        setDequeueStudentSearchResult({ student: null, loading: false, error: "Failed to search for student" })
+      }
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
+  }, [dequeueStudentId, dequeueModalOpened, basicAuthToken])
+
+  // Fetch announcements
+  useEffect(() => {
+    const fetchAnnouncements = async () => {
+      try {
+        setAnnouncementsLoading(true)
+        const data = await AnnouncementService.getAnnouncements()
+        setAnnouncements(data)
+      } catch (error) {
+        console.error("Error fetching announcements:", error)
+        setAnnouncements([])
+      } finally {
+        setAnnouncementsLoading(false)
+      }
+    }
+
+    if (isCisco) {
+      fetchAnnouncements()
+    }
+  }, [isCisco])
 
   const queues = [
     { program: ProgramEnum.CS, course: CourseNameEnum.BSCS },
@@ -205,6 +276,40 @@ const AdminPage: React.FC = () => {
     }
   }
 
+  const handleDequeueStudent = async () => {
+    if (!basicAuthToken) {
+      toast.error("Authorization token is missing.")
+      return
+    }
+
+    if (!dequeueStudentId.trim()) {
+      toast.error("Please enter a student ID number.")
+      return
+    }
+
+    if (!dequeueStudentSearchResult.student) {
+      toast.error("Student not found in database. Please verify the ID number.")
+      return
+    }
+
+    try {
+      const result = await QueueService.dequeueStudentById(dequeueStudentId.trim(), basicAuthToken)
+
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+
+      toast.success("Student removed from queue successfully!")
+      setDequeueStudentId("")
+      setDequeueStudentSearchResult({ student: null, loading: false, error: null })
+      closeDequeueModal()
+    } catch (error) {
+      console.error("Error dequeuing student:", error)
+      toast.error("Failed to remove student from queue. Please try again.")
+    }
+  }
+
   const handleAddAnnouncement = async () => {
     if (!basicAuthToken) {
       toast.error("Authorization token is missing.")
@@ -227,10 +332,43 @@ const AdminPage: React.FC = () => {
       toast.success("Announcement added successfully!")
       setAnnouncementText("")
       closeAddAnnouncementModal()
+      // Refresh announcements
+      const data = await AnnouncementService.getAnnouncements()
+      setAnnouncements(data)
     } catch (error) {
       console.error("Error adding announcement:", error)
       toast.error("Failed to add announcement. Please try again.")
     }
+  }
+
+  const handleDeleteAnnouncement = async (id: number) => {
+    if (!basicAuthToken) {
+      toast.error("Authorization token is missing.")
+      return
+    }
+
+    try {
+      const result = await AnnouncementService.deleteAnnouncement(id, basicAuthToken)
+
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+
+      toast.success("Announcement deleted successfully!")
+      // Refresh announcements
+      const data = await AnnouncementService.getAnnouncements()
+      setAnnouncements(data)
+    } catch (error) {
+      console.error("Error deleting announcement:", error)
+      toast.error("Failed to delete announcement. Please try again.")
+    }
+  }
+
+  const openDeleteAnnouncementModal = (id: number) => {
+    DeleteAnnouncementConfirmModal.open({
+      onConfirm: () => handleDeleteAnnouncement(id),
+    })
   }
 
   return (
@@ -261,6 +399,7 @@ const AdminPage: React.FC = () => {
                 onStatusChange={(newStatus) => handleStatusUpdate(queues[index].course, newStatus)}
                 isAdmin={true}
                 onAddStudentToQueue={isCisco ? () => openAddToQueueModalForCourse(queues[index].course) : undefined}
+                onDequeueStudent={isCisco ? openDequeueModal : undefined}
               />
             )
           })}
@@ -276,6 +415,50 @@ const AdminPage: React.FC = () => {
               Add Announcement
             </Button>
           </Flex>
+
+          {/* Announcements Management */}
+          <Card shadow="sm" padding="md" radius="lg" w="100%" maw="1200px" mt="md">
+            <Text size="lg" fw={600} mb="md">
+              Manage Announcements
+            </Text>
+            {announcementsLoading ? (
+              <Flex align="center" justify="center" py="md">
+                <Loader size="sm" />
+              </Flex>
+            ) : announcements.length === 0 ? (
+              <Text size="sm" c="dimmed">
+                No announcements at this time.
+              </Text>
+            ) : (
+              <Flex direction="column" gap="md">
+                {announcements.map((announcement) => (
+                  <Card key={announcement.id} padding="sm" radius="md" style={{ backgroundColor: "#f9f9f9" }}>
+                    <Flex justify="space-between" align="flex-start" gap="md">
+                      <Flex direction="column" gap="xs" style={{ flex: 1 }}>
+                        <Text size="xs" c="dimmed">
+                          {announcement.date instanceof Date
+                            ? announcement.date.toDateString()
+                            : new Date(announcement.date).toDateString()}
+                        </Text>
+                        <Text size="sm">
+                          {Array.isArray(announcement.text) ? announcement.text.join(" ") : announcement.text}
+                        </Text>
+                      </Flex>
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        color="red"
+                        leftSection={<Trash2 size={14} />}
+                        onClick={() => openDeleteAnnouncementModal(announcement.id)}
+                      >
+                        Delete
+                      </Button>
+                    </Flex>
+                  </Card>
+                ))}
+              </Flex>
+            )}
+          </Card>
         </div>
       )}
 
@@ -365,7 +548,7 @@ const AdminPage: React.FC = () => {
               bg="primary"
               disabled={!studentSearchResult.student || studentSearchResult.loading}
             >
-              Add to Queue
+              Enqueue
             </Button>
             <Button
               onClick={() => {
@@ -411,6 +594,74 @@ const AdminPage: React.FC = () => {
               onClick={() => {
                 closeAddAnnouncementModal()
                 setAnnouncementText("")
+              }}
+              fullWidth
+              radius="md"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+          </Flex>
+        </Flex>
+      </Modal>
+
+      {/* Dequeue Student Modal */}
+      <Modal
+        opened={dequeueModalOpened}
+        onClose={() => {
+          closeDequeueModal()
+          setDequeueStudentId("")
+          setDequeueStudentSearchResult({ student: null, loading: false, error: null })
+        }}
+        title="Remove Student from Queue"
+        centered
+      >
+        <Flex direction="column" gap="md">
+          <TextInput
+            label="Student ID Number"
+            placeholder="Enter student ID number"
+            value={dequeueStudentId}
+            onChange={(e) => setDequeueStudentId(e.target.value)}
+            required
+          />
+
+          {/* Student Search Result Display */}
+          {dequeueStudentId.trim().length > 0 && (
+            <div className="-mt-2">
+              {dequeueStudentSearchResult.student ? (
+                <Text size="xs" c="dimmed" fw={500} className="uppercase">
+                  STUDENT: {dequeueStudentSearchResult.student.name}
+                </Text>
+              ) : dequeueStudentSearchResult.error ? (
+                <Text size="xs" c="red" fw={500} className="uppercase">
+                  STUDENT NOT FOUND
+                </Text>
+              ) : (
+                <Flex align="center" gap="xs">
+                  <Loader size="xs" />
+                  <Text size="xs" c="dimmed" fw={500}>
+                    Searching...
+                  </Text>
+                </Flex>
+              )}
+            </div>
+          )}
+
+          <Flex gap="sm" mt="md">
+            <Button
+              onClick={handleDequeueStudent}
+              fullWidth
+              radius="md"
+              bg="red"
+              disabled={!dequeueStudentSearchResult.student || dequeueStudentSearchResult.loading}
+            >
+              Remove
+            </Button>
+            <Button
+              onClick={() => {
+                closeDequeueModal()
+                setDequeueStudentId("")
+                setDequeueStudentSearchResult({ student: null, loading: false, error: null })
               }}
               fullWidth
               radius="md"
