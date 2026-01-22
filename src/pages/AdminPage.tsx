@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react"
 import { Button, Card, Flex, Loader, Modal, Text, TextInput, Textarea } from "@mantine/core"
 import { useDisclosure } from "@mantine/hooks"
 import { Megaphone, Trash2, UserPlus } from "lucide-react"
+import { mutate } from "swr"
 
 import DeleteAnnouncementConfirmModal from "../components/announcement/DeleteAnnouncementConfirmModal"
 import CardLoader from "../components/layout/CardLoader"
@@ -173,9 +174,9 @@ const AdminPage: React.FC = () => {
   // Combine the data into an array after the hooks are called
   const queueData = [csQueueData, itQueueData, isQueueData]
 
-  const handleQueueUpdate = async (course: CourseNameEnum) => {
+  const handleQueueUpdate = async (course: CourseNameEnum, studentId: string) => {
     if (basicAuthToken) {
-      const result = await updateQueue(course, basicAuthToken)
+      const result = await updateQueue(course, studentId, basicAuthToken)
       if (!result.success) {
         toast.error("Failed to update queue. Please try again")
       } else {
@@ -270,6 +271,7 @@ const AdminPage: React.FC = () => {
       setQueueStudent({ idNumber: "", course: null })
       setStudentSearchResult({ student: null, loading: false, error: null })
       closeAddToQueueModal()
+      await mutate(`queue/${queueStudent.course}/number/current`)
     } catch (error) {
       console.error("Error adding student to queue:", error)
       toast.error("Failed to add student to queue. Please try again.")
@@ -395,7 +397,12 @@ const AdminPage: React.FC = () => {
                 total={numberData.data.max}
                 status={teacherStatus}
                 teacher={coordinatorData.data.name}
-                onUpdateQueue={() => handleQueueUpdate(queues[index].course)}
+                onUpdateQueue={() =>
+                  handleQueueUpdate(
+                    queues[index].course,
+                    (numberData.data?.queuedStudents.length && numberData.data?.queuedStudents[0].student?.id) || "",
+                  )
+                }
                 onStatusChange={(newStatus) => handleStatusUpdate(queues[index].course, newStatus)}
                 isAdmin={true}
                 onAddStudentToQueue={isCisco ? () => openAddToQueueModalForCourse(queues[index].course) : undefined}

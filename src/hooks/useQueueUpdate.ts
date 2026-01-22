@@ -7,9 +7,9 @@ import { CourseNameEnum } from "../types/enums/CourseNameEnum"
 import toast from "../utils/toast"
 
 export const useQueueUpdate = () => {
-  const updateQueue = useCallback(async (course: CourseNameEnum, basicAuthToken: string) => {
+  const updateQueue = useCallback(async (course: CourseNameEnum, studentId: string, basicAuthToken: string) => {
     try {
-      await QueueService.updateQueue(course, basicAuthToken)
+      await QueueService.dequeueStudentById(studentId, basicAuthToken)
       await mutate(`queue/${course}/number/current`)
       toast.success("Successfully moved the queue forward")
       return { success: true }
