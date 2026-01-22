@@ -19,15 +19,12 @@ jobs:
           npm install
           npm run build
 
-      - name: Upload dist folder via SCP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DCISM_HOST }}
-          username: ${{ secrets.DCISM_EMAIL }}
-          password: ${{ secrets.DCISM_PASSWORD }}
-          port: ${{ secrets.SSH_PORT }}
-          source: "./dist/*"
-          target: "~/${{ secrets.DCISM_DOMAIN }}/"
-          overwrite: true
-          strip_components: 1
-          timeout: 300s
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Deploy dist folder via rsync with password
+        env:
+          SSH_PASSWORD: ${{ secrets.DCISM_PASSWORD }}
+        run: |
+          # Use rsync + sshpass to copy files with password
+          sshpass -p "$SSH_PASSWORD" rsync -avz -e "ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }}" ./dist/ ${{ secrets.DCISM_EMAIL }}@${{ secrets.DCISM_HOST }}:/home/username/${{ secrets.DCISM_DOMAIN }}/
