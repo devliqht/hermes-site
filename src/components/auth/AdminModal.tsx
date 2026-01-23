@@ -11,7 +11,7 @@ export default function AdminModal() {
       <Modal
         opened={opened}
         onClose={close}
-        title="Admin Sign in"
+        title="Admin Sign In"
         overlayProps={{
           backgroundOpacity: 0.55,
           blur: 3,
@@ -21,7 +21,7 @@ export default function AdminModal() {
       </Modal>
 
       <Anchor size="sm" component="button" ta="center" onClick={open} c="primary">
-        Admin Sign in
+        Admin Sign In
       </Anchor>
     </>
   )
