@@ -10,7 +10,8 @@
     "preview": "vite preview --host",
     "lint": "eslint --fix --no-error-on-unmatched-pattern ./src/**/*.{ts,tsx}",
     "format": "prettier --write \"./src/**/*.+(tsx|ts|json|html|css)\"",
-    "prepare": "husky"
+    "prepare": "husky",
+    "mcp": "bun run src/mcp-server.ts"
   },
   "dependencies": {
     "@mantine/code-highlight": "^7.15.3",
