@@ -1,5 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 
 const DEFAULT_BASE_URL = "https://hermes.dcism.org"
@@ -291,5 +292,78 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 })
 
-const transport = new StdioServerTransport()
-await server.connect(transport)
+// Setup transport mode based on arguments or environment variables
+let port = parseInt(process.env.PORT || "3000", 10)
+const portIndex = process.argv.indexOf("--port")
+if (portIndex !== -1 && portIndex + 1 < process.argv.length) {
+  port = parseInt(process.argv[portIndex + 1], 10)
+}
+const isHttp = process.argv.includes("--http") || process.env.PORT !== undefined || portIndex !== -1
+
+if (isHttp) {
+  const sessions = new Map<string, WebStandardStreamableHTTPServerTransport>()
+
+  Bun.serve({
+    port,
+    async fetch(req) {
+      if (req.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, MCP-Protocol-Version, mcp-session-id",
+          },
+        })
+      }
+
+      let res: Response
+      if (req.method === "GET") {
+        const transport = new WebStandardStreamableHTTPServerTransport({
+          sessionIdGenerator: () => crypto.randomUUID(),
+        })
+        await server.connect(transport)
+        res = await transport.handleRequest(req)
+        const sessionId = transport.sessionId
+        if (sessionId) {
+          sessions.set(sessionId, transport)
+          transport.onclose = () => {
+            sessions.delete(sessionId)
+          }
+        }
+      } else {
+        const sessionId = req.headers.get("mcp-session-id")
+        if (!sessionId) {
+          res = new Response("Missing mcp-session-id header", { status: 400 })
+        } else {
+          const transport = sessions.get(sessionId)
+          if (!transport) {
+            res = new Response("Session not found", { status: 404 })
+          } else {
+            res = await transport.handleRequest(req)
+            if (req.method === "DELETE") {
+              sessions.delete(sessionId)
+            }
+          }
+        }
+      }
+
+      // Set CORS headers
+      const newHeaders = new Headers(res.headers)
+      newHeaders.set("Access-Control-Allow-Origin", "*")
+      newHeaders.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+      newHeaders.set("Access-Control-Allow-Headers", "Content-Type, MCP-Protocol-Version, mcp-session-id")
+
+      return new Response(res.body, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: newHeaders,
+      })
+    },
+  })
+
+  process.stderr.write(`Hermes Queue MCP server running over HTTP on port ${port}...\n`)
+} else {
+  const transport = new StdioServerTransport()
+  await server.connect(transport)
+}
