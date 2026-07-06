@@ -322,33 +322,31 @@ if (isHttp) {
       }
 
       let res: Response
-      if (req.method === "GET") {
+      const sessionId = req.headers.get("mcp-session-id")
+
+      if (sessionId) {
+        const transport = sessions.get(sessionId)
+        if (!transport) {
+          res = new Response("Session not found", { status: 404 })
+        } else {
+          res = await transport.handleRequest(req)
+          if (req.method === "DELETE") {
+            sessions.delete(sessionId)
+          }
+        }
+      } else {
         const transport = new WebStandardStreamableHTTPServerTransport({
           sessionIdGenerator: () => crypto.randomUUID(),
         })
         const serverInstance = createMcpServer()
         await serverInstance.connect(transport)
         res = await transport.handleRequest(req)
-        const sessionId = transport.sessionId
-        if (sessionId) {
-          sessions.set(sessionId, transport)
+
+        const newSessionId = res.headers.get("mcp-session-id")
+        if (newSessionId) {
+          sessions.set(newSessionId, transport)
           transport.onclose = () => {
-            sessions.delete(sessionId)
-          }
-        }
-      } else {
-        const sessionId = req.headers.get("mcp-session-id")
-        if (!sessionId) {
-          res = new Response("Missing mcp-session-id header", { status: 400 })
-        } else {
-          const transport = sessions.get(sessionId)
-          if (!transport) {
-            res = new Response("Session not found", { status: 404 })
-          } else {
-            res = await transport.handleRequest(req)
-            if (req.method === "DELETE") {
-              sessions.delete(sessionId)
-            }
+            sessions.delete(newSessionId)
           }
         }
       }
