@@ -10,11 +10,11 @@ const getBaseUrl = () => {
 const COURSES = ["BSCS", "BSIT", "BSIS"] as const
 type Course = (typeof COURSES)[number]
 
-const isValidCourse = (course: any): course is Course => {
-  return COURSES.includes(course)
+const isValidCourse = (course: string | undefined | null): course is Course => {
+  return typeof course === "string" && (COURSES as readonly string[]).includes(course)
 }
 
-async function fetchQueueData(course: Course) {
+const fetchQueueData = async (course: Course) => {
   const baseUrl = getBaseUrl()
   const [queueRes, coordinatorRes] = await Promise.all([
     fetch(`${baseUrl}/queue/${course}/number/current`),
@@ -139,22 +139,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     if (name === "get_queues") {
       const course = args?.course
-      if (course) {
-        if (!isValidCourse(course)) {
-          return {
-            isError: true,
-            content: [{ type: "text", text: `Invalid course: ${course}. Must be one of BSCS, BSIT, BSIS.` }],
-          }
+      if (course && !isValidCourse(course)) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Invalid course: ${course}. Must be one of BSCS, BSIT, BSIS.` }],
         }
+      }
+      if (course) {
         const data = await fetchQueueData(course)
         return {
           content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
         }
-      } else {
-        const results = await Promise.all(COURSES.map((c) => fetchQueueData(c)))
-        return {
-          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
-        }
+      }
+      const results = await Promise.all(COURSES.map((c) => fetchQueueData(c)))
+      return {
+        content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
       }
     }
 
@@ -283,14 +282,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     throw new Error(`Tool not found: ${name}`)
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errMessage = error instanceof Error ? error.message : String(error)
     return {
       isError: true,
-      content: [{ type: "text", text: `Error executing tool: ${error?.message || error}` }],
+      content: [{ type: "text", text: `Error executing tool: ${errMessage}` }],
     }
   }
 })
 
 const transport = new StdioServerTransport()
 await server.connect(transport)
-console.error("Hermes Queue MCP server running on stdio transport.")
